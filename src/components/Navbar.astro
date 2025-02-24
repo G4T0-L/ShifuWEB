@@ -2,8 +2,7 @@
 import { getUserFromSession } from "../utils/auth";
 const user = await getUserFromSession(Astro);
 
-const discordAuthUrl =
-  "https://discord.com/oauth2/authorize?client_id=1342188880404811886&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4321%2Fapi%2Fauth%2Fcallback&scope=identify+guilds";
+const discordAuthUrl = `https://discord.com/oauth2/authorize?client_id=${import.meta.env.PUBLIC_CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(import.meta.env.PUBLIC_DISCORD_REDIRECT_URI)}&scope=identify+guilds`;
 ---
 
 <nav class="bg-gray-800 p-4">
