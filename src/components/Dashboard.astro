@@ -1,0 +1,257 @@
+---
+import type { AstroGlobal } from "astro";
+import db from "../utils/db.js";
+import { getUserFromSession } from "../utils/auth";
+
+/** Interfaz para los breaks asociados a un turno */
+interface BreakInfo {
+  break_start?: string;
+  break_end?: string;
+  reason?: string;
+  created_at?: string;
+}
+
+/** Interfaz principal para describir un turno */
+export interface ClientShift {
+  id: string;
+  server_id: string;
+  server_name: string;
+  user_id: string;
+  nickname: string;
+  start_time: string;
+  end_time?: string;
+  breaks?: BreakInfo[];
+}
+
+// ==========================
+// LÓGICA DEL LADO DEL SERVIDOR
+// ==========================
+
+// Formatea fecha y hora
+function formatDateTime(dateStr: string): string {
+  if (!dateStr) return "Sin fecha";
+  const date = new Date(dateStr);
+  const options: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  };
+  return date.toLocaleString("es-ES", options).replace(",", " -");
+}
+
+// Formatea duración en milisegundos a HH:MM:SS
+function formatDuration(durationMs: number): string {
+  if (durationMs <= 0) return "00:00:00";
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+// Formatea fecha corta (DD/MM/YY) - opcional si la usas en otro lugar
+function formatDateShort(dateStr: string): string {
+  if (!dateStr) return "";
+  const date = new Date(dateStr);
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear()).slice(-2);
+  return `${day}/${month}/${year}`;
+}
+
+// Función para obtener turnos de un usuario
+async function getShiftsForUser(userId: string): Promise<ClientShift[]> {
+  const query = `
+    SELECT
+      shifts.id,
+      shifts.user_id,
+      shifts.server_id,
+      shifts.start_time,
+      shifts.end_time,
+      shifts.observations,
+      shifts.created_at,
+      servers.name AS server_name,
+      us.nickname AS nickname,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'break_start', breaks.break_start,
+            'break_end', breaks.break_end,
+            'reason', breaks.reason,
+            'created_at', breaks.created_at
+          )
+        )
+        FILTER (WHERE breaks.id IS NOT NULL),
+        '[]'
+      ) AS breaks
+    FROM shifts
+    JOIN servers ON shifts.server_id = servers.id
+    JOIN user_servers us ON us.user_id = shifts.user_id AND us.server_id = shifts.server_id
+    LEFT JOIN breaks ON breaks.shift_id = shifts.id
+    WHERE shifts.user_id = $1
+    GROUP BY shifts.id, servers.name, us.nickname
+    ORDER BY shifts.id ASC
+  `;
+  const { rows } = await db.query(query, [userId]);
+  return rows as ClientShift[];
+}
+
+// Verifica usuario
+const user = await getUserFromSession(Astro as AstroGlobal);
+if (!user) {
+  throw new Error("No hay usuario autenticado");
+}
+
+// Obtén turnos de la BD
+const shifts = await getShiftsForUser(user.id);
+
+// Procesa los turnos para mostrarlos en la tabla
+const processedShifts = shifts.map((shift: ClientShift) => {
+  const startTime = shift.start_time ? new Date(shift.start_time) : null;
+  const endTime = shift.end_time ? new Date(shift.end_time) : null;
+
+  let totalBreakMs = 0;
+  if (shift.breaks) {
+    shift.breaks.forEach((b: BreakInfo) => {
+      if (b.break_start && b.break_end) {
+        totalBreakMs +=
+          new Date(b.break_end).getTime() - new Date(b.break_start).getTime();
+      }
+    });
+  }
+
+  let totalWorkedMs = 0;
+  if (startTime && endTime) {
+    totalWorkedMs = endTime.getTime() - startTime.getTime() - totalBreakMs;
+  }
+
+  return {
+    serverName: shift.server_name,
+    startFormatted: formatDateTime(shift.start_time),
+    totalWorked: formatDuration(totalWorkedMs),
+    totalBreak: formatDuration(totalBreakMs),
+  };
+});
+
+// Paginación
+const itemsPerPage = 10;
+const url = new URL(Astro.request.url);
+const pageParam = url.searchParams.get("page");
+const page = pageParam ? parseInt(pageParam, 10) : 1;
+const startIndex = (page - 1) * itemsPerPage;
+const endIndex = startIndex + itemsPerPage;
+const totalPages = Math.ceil(processedShifts.length / itemsPerPage);
+const paginatedShifts = processedShifts.slice(startIndex, endIndex);
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dashboard de Turnos</title>
+  </head>
+  <body>
+    <!-- Contenedor del dashboard -->
+    <div class="p-4 font-roboto text-black max-w-4xl mx-auto my-8 bg-secondary">
+      <h1 class="text-3xl font-lilita text-primary-dark mb-4 text-center">
+        Dashboard de Turnos
+      </h1>
+      <!-- Tabla con turnos paginados -->
+      <div class="overflow-x-auto">
+        <table
+          class="border-2 border-gray-500 border-collapse w-full text-center"
+        >
+          <thead>
+            <tr class="bg-secondary-dark text-white">
+              <th class="p-2 border border-gray-300">Servidor</th>
+              <th class="p-2 border border-gray-300">Fecha y Hora de Inicio</th>
+              <th class="p-2 border border-gray-300">Horas Trabajadas</th>
+              <th class="p-2 border border-gray-300">Tiempo en Break</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              paginatedShifts.map((shift, index) => (
+                <tr
+                  class={
+                    index % 2 === 0
+                      ? "bg-primary hover:bg-secondary transition-colors"
+                      : "bg-primary-dark hover:bg-secondary transition-colors"
+                  }
+                >
+                  <td class="p-2 border border-gray-300">{shift.serverName}</td>
+                  <td class="p-2 border border-gray-300">
+                    {shift.startFormatted}
+                  </td>
+                  <td class="p-2 border border-gray-300">
+                    {shift.totalWorked}
+                  </td>
+                  <td class="p-2 border border-gray-300">{shift.totalBreak}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Controles de paginación -->
+      <div class="flex justify-center items-center gap-4 mt-4">
+        {
+          page > 1 && (
+            <a
+              href={(() => {
+                const newUrl = new URL(Astro.request.url);
+                newUrl.searchParams.set("page", String(page - 1));
+                return newUrl.toString();
+              })()}
+              class="px-4 py-2 bg-primary-dark text-white rounded hover:bg-primary transition-colors"
+            >
+              Anterior
+            </a>
+          )
+        }
+        <span class="font-bold">
+          Página {page} de {totalPages}
+        </span>
+        {
+          page < totalPages && (
+            <a
+              href={(() => {
+                const newUrl = new URL(Astro.request.url);
+                newUrl.searchParams.set("page", String(page + 1));
+                return newUrl.toString();
+              })()}
+              class="px-4 py-2 bg-primary-dark text-white rounded hover:bg-primary transition-colors"
+            >
+              Siguiente
+            </a>
+          )
+        }
+      </div>
+    </div>
+    <style>
+      .download-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 1000;
+      }
+    </style>
+    <button
+      class="download-btn"
+      onclick="window.location.href='/api/download-csv'"
+    >
+      Descargar Reporte
+    </button>
+  </body>
+</html>

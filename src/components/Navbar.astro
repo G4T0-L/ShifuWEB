@@ -1,0 +1,79 @@
+---
+import { getUserFromSession } from "../utils/auth";
+const user = await getUserFromSession(Astro);
+
+const discordAuthUrl =
+  "https://discord.com/oauth2/authorize?client_id=1342188880404811886&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A4321%2Fapi%2Fauth%2Fcallback&scope=identify+guilds";
+---
+
+<nav class="bg-gray-800 p-4">
+  <div class="container mx-auto flex justify-between items-center">
+    <!-- Izquierda: Logo y nombre del sitio -->
+    <div class="flex items-center space-x-2">
+      <img
+        src="/src/assets/logo.svg"
+        alt="Logo"
+        class="w-full h-24 -rotate-12"
+      />
+    </div>
+
+    <!-- Derecha: Mostrar usuario autenticado o botón de login -->
+    <div>
+      {user ? (
+        <div class="relative group inline-block">
+          <div class="flex items-center space-x-3 cursor-pointer">
+            <img
+              src={user.avatarUrl}
+              alt="Foto de perfil"
+              class="w-10 h-10 rounded-full border-2 border-white"
+            />
+            <span class="text-white">{user.displayName}</span>
+          </div>
+          <!-- Menú desplegable de logout y Dashboard -->
+          <div
+            class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg
+                   opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <a
+              href="/dashboardIndex"
+              class="block px-4 py-2 text-gray-800 hover:bg-gray-100"
+            >
+              Ir al Dashboard
+            </a>
+            <a
+              href="/api/auth/logout"
+              class="block px-4 py-2 text-gray-800 hover:bg-gray-100"
+            >
+              Cerrar sesión
+            </a>
+          </div>
+        </div>
+      ) : (
+        <a
+          href={discordAuthUrl}
+          class="bg-blue-500 text-white px-6 py-3 rounded-lg flex items-center
+                 hover:bg-blue-600 transition-colors"
+          data-popup="true"
+        >
+          Ingresar con Discord
+        </a>
+      )}
+    </div>
+  </div>
+</nav>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const popupLinks = document.querySelectorAll('[data-popup="true"]');
+    
+    popupLinks.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const href = link.getAttribute('href');
+        if (href) {
+          window.open(href, 'Discord Auth', 'width=600,height=800');
+        }
+      });
+    });
+  });
+</script>
