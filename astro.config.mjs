@@ -10,9 +10,7 @@ dotenv.config();
 
 export default defineConfig({
   integrations: [tailwind(), solid()],
-  adapter: node({
-    mode: 'standalone',
-  }),
+  adapter: vercel(),
   output: 'server',
 });
 
