@@ -1,10 +1,11 @@
 import type { APIRoute } from "astro";
 
-const CLIENT_ID = import.meta.env.CLIENT_ID;
+const CLIENT_ID = import.meta.env.PUBLIC_CLIENT_ID;
 const CLIENT_SECRET = import.meta.env.CLIENT_SECRET;
-const DISCORD_REDIRECT_URI = import.meta.env.DISCORD_REDIRECT_URI;
+const DISCORD_REDIRECT_URI = import.meta.env.PUBLIC_DISCORD_REDIRECT_URI;
 const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 const DISCORD_USER_URL = "https://discord.com/api/users/@me";
+
 
 export const GET: APIRoute = async ({ request, cookies }) => {
   const url = new URL(request.url);
